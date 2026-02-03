@@ -7,6 +7,21 @@ import { FormData, EmailSettings } from './types';
 
 const API_SUBMISSIONS_URL = '/api/submissions';
 
+const normalizeEmailSettings = (raw: any): EmailSettings => {
+  const supportEmail = typeof raw?.supportEmail === 'string' ? raw.supportEmail : 'it-support@moonshot.digital';
+  return {
+    supportEmail,
+    notificationEmail: typeof raw?.notificationEmail === 'string' ? raw.notificationEmail : '',
+    isEnabled: !!raw?.isEnabled,
+    smtpHost: typeof raw?.smtpHost === 'string' ? raw.smtpHost : '',
+    smtpPort: typeof raw?.smtpPort === 'string' ? raw.smtpPort : '465',
+    smtpUser: typeof raw?.smtpUser === 'string' ? raw.smtpUser : '',
+    smtpPass: typeof raw?.smtpPass === 'string' ? raw.smtpPass : '',
+    useSSL: raw?.useSSL !== false,
+    webhookUrl: typeof raw?.webhookUrl === 'string' ? raw.webhookUrl : undefined,
+  };
+};
+
 const App: React.FC = () => {
   const [isAdminMode, setIsAdminMode] = useState(false);
   const [isAuthenticated, setIsAuthenticated] = useState(false);
@@ -44,7 +59,7 @@ const App: React.FC = () => {
           const settingsRes = await fetch('/api/settings', { credentials: 'include' });
           if (settingsRes.ok) {
             const s = await settingsRes.json();
-            setEmailSettings(s);
+            setEmailSettings(normalizeEmailSettings(s));
           }
 
           const submissionsRes = await fetch(API_SUBMISSIONS_URL, { credentials: 'include' });
@@ -92,7 +107,7 @@ const App: React.FC = () => {
     fetch('/api/settings', { credentials: 'include' })
       .then(r => (r.ok ? r.json() : null))
       .then(s => {
-        if (s) setEmailSettings(s);
+        if (s) setEmailSettings(normalizeEmailSettings(s));
       })
       .catch(() => {
         // ignore
@@ -135,7 +150,7 @@ const App: React.FC = () => {
       });
 
       if (!res.ok) return false;
-      setEmailSettings(settings);
+      setEmailSettings(normalizeEmailSettings(settings));
       return true;
     } catch {
       // ignore
