@@ -6,7 +6,6 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import crypto from 'node:crypto';
 import { DatabaseSync } from 'node:sqlite';
-import pg from 'pg';
 import bcrypt from 'bcryptjs';
 import nodemailer from 'nodemailer';
 import { z } from 'zod';
@@ -16,9 +15,8 @@ const __dirname = path.dirname(__filename);
 
 const PORT = Number(process.env.PORT || 5174);
 
-const POSTGRES_URL = String(
-  process.env.DATABASE_URL || process.env.POSTGRES_URL || process.env.SUPABASE_DATABASE_URL || ''
-).trim();
+const TURSO_DATABASE_URL = String(process.env.TURSO_DATABASE_URL || '').trim();
+const TURSO_AUTH_TOKEN = String(process.env.TURSO_AUTH_TOKEN || '').trim();
 
 const DB_PATH = (() => {
   const raw = process.env.SQLITE_DB_PATH || process.env.DB_PATH;
@@ -28,28 +26,21 @@ const DB_PATH = (() => {
 })();
 
 let _sqliteDb;
-let _pgPool;
+let _tursoClient;
 
-const { Pool } = pg;
-
-const dbMode = () => (POSTGRES_URL ? 'postgres' : 'sqlite');
-
-const toPgSql = (sql) => {
-  let i = 0;
-  return String(sql).replace(/\?/g, () => `$${++i}`);
-};
+const dbMode = () => (TURSO_DATABASE_URL ? 'turso' : 'sqlite');
 
 const dbExec = async (sql) => {
-  if (dbMode() === 'postgres') {
-    await _pgPool.query(String(sql));
+  if (dbMode() === 'turso') {
+    await _tursoClient.execute(sql);
     return;
   }
   _sqliteDb.exec(sql);
 };
 
 const dbGet = async (sql, args = []) => {
-  if (dbMode() === 'postgres') {
-    const res = await _pgPool.query({ text: toPgSql(sql), values: args });
+  if (dbMode() === 'turso') {
+    const res = await _tursoClient.execute({ sql, args });
     return res.rows?.[0];
   }
   const stmt = _sqliteDb.prepare(sql);
@@ -57,8 +48,8 @@ const dbGet = async (sql, args = []) => {
 };
 
 const dbAll = async (sql, args = []) => {
-  if (dbMode() === 'postgres') {
-    const res = await _pgPool.query({ text: toPgSql(sql), values: args });
+  if (dbMode() === 'turso') {
+    const res = await _tursoClient.execute({ sql, args });
     return res.rows || [];
   }
   const stmt = _sqliteDb.prepare(sql);
@@ -66,9 +57,9 @@ const dbAll = async (sql, args = []) => {
 };
 
 const dbRun = async (sql, args = []) => {
-  if (dbMode() === 'postgres') {
-    const res = await _pgPool.query({ text: toPgSql(sql), values: args });
-    return { changes: Number(res.rowCount || 0) };
+  if (dbMode() === 'turso') {
+    const res = await _tursoClient.execute({ sql, args });
+    return { changes: Number(res.rowsAffected || 0) };
   }
   const stmt = _sqliteDb.prepare(sql);
   const info = stmt.run(...args);
@@ -76,12 +67,9 @@ const dbRun = async (sql, args = []) => {
 };
 
 const initDb = async () => {
-  if (dbMode() === 'postgres') {
-    _pgPool = new Pool({
-      connectionString: POSTGRES_URL,
-      ssl: process.env.PGSSLMODE === 'disable' ? false : { rejectUnauthorized: false },
-    });
-    await _pgPool.query('SELECT 1');
+  if (dbMode() === 'turso') {
+    const { createClient } = await import('@libsql/client');
+    _tursoClient = createClient({ url: TURSO_DATABASE_URL, authToken: TURSO_AUTH_TOKEN || undefined });
   } else {
     try {
       fs.mkdirSync(path.dirname(DB_PATH), { recursive: true });
@@ -110,7 +98,7 @@ const initDb = async () => {
   await dbExec(`
     CREATE TABLE IF NOT EXISTS sessions (
       tokenHash TEXT PRIMARY KEY,
-      expiresAt BIGINT NOT NULL
+      expiresAt INTEGER NOT NULL
     );
   `);
 
@@ -961,8 +949,8 @@ const startServer = async () => {
   app.listen(PORT, () => {
     console.log(`[server] API running on http://localhost:${PORT}`);
     console.log(`[server] DB mode: ${dbMode()}`);
-    if (dbMode() === 'postgres') {
-      console.log('[server] Postgres DB: connected');
+    if (dbMode() === 'turso') {
+      console.log(`[server] Turso URL: ${TURSO_DATABASE_URL}`);
     } else {
       console.log(`[server] SQLite DB: ${DB_PATH}`);
     }
