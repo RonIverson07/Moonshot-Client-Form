@@ -15,6 +15,9 @@ const __dirname = path.dirname(__filename);
 
 const PORT = Number(process.env.PORT || 5174);
 
+const TURSO_DATABASE_URL = String(process.env.TURSO_DATABASE_URL || '').trim();
+const TURSO_AUTH_TOKEN = String(process.env.TURSO_AUTH_TOKEN || '').trim();
+
 const DB_PATH = (() => {
   const raw = process.env.SQLITE_DB_PATH || process.env.DB_PATH;
   if (raw) return path.isAbsolute(raw) ? raw : path.resolve(raw);
@@ -22,77 +25,123 @@ const DB_PATH = (() => {
   return path.join(__dirname, 'moonshot.sqlite');
 })();
 
-try {
-  fs.mkdirSync(path.dirname(DB_PATH), { recursive: true });
-} catch (e) {
-  console.warn('[server] Failed to ensure DB directory exists:', e);
-}
+let _sqliteDb;
+let _tursoClient;
 
-const db = new DatabaseSync(DB_PATH);
+const dbMode = () => (TURSO_DATABASE_URL ? 'turso' : 'sqlite');
 
-db.exec('PRAGMA journal_mode = WAL;');
-db.exec(`
-  CREATE TABLE IF NOT EXISTS submissions (
-    id TEXT PRIMARY KEY,
-    submittedAt TEXT NOT NULL,
-    data TEXT NOT NULL
-  );
-`);
-
-db.exec(`
-  CREATE TABLE IF NOT EXISTS admin_users (
-    username TEXT PRIMARY KEY,
-    passwordHash TEXT NOT NULL
-  );
-`);
-
-db.exec(`
-  CREATE TABLE IF NOT EXISTS sessions (
-    tokenHash TEXT PRIMARY KEY,
-    expiresAt INTEGER NOT NULL
-  );
-`);
-
-db.exec(`
-  CREATE TABLE IF NOT EXISTS settings (
-    id INTEGER PRIMARY KEY CHECK (id = 1),
-    supportEmail TEXT NOT NULL,
-    notificationEmail TEXT NOT NULL,
-    isEnabled INTEGER NOT NULL,
-    smtpHost TEXT NOT NULL,
-    smtpPort TEXT NOT NULL,
-    smtpUser TEXT NOT NULL,
-    smtpPass TEXT NOT NULL,
-    useSSL INTEGER NOT NULL
-  );
-`);
-
-db.exec(`
-  CREATE INDEX IF NOT EXISTS idx_submissions_submittedAt
-  ON submissions(submittedAt);
-`);
-
-db.exec(`
-  CREATE INDEX IF NOT EXISTS idx_sessions_expiresAt
-  ON sessions(expiresAt);
-`);
-
-const ensureDefaults = () => {
-  const admin = db.prepare('SELECT username FROM admin_users WHERE username = ?').get('admin');
-  if (!admin) {
-    const passwordHash = bcrypt.hashSync('admin123', 10);
-    db.prepare('INSERT INTO admin_users (username, passwordHash) VALUES (?, ?)').run('admin', passwordHash);
+const dbExec = async (sql) => {
+  if (dbMode() === 'turso') {
+    await _tursoClient.execute(sql);
+    return;
   }
-
-  const s = db.prepare('SELECT id FROM settings WHERE id = 1').get();
-  if (!s) {
-    db.prepare(
-      'INSERT INTO settings (id, supportEmail, notificationEmail, isEnabled, smtpHost, smtpPort, smtpUser, smtpPass, useSSL) VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?)'
-    ).run('it-support@moonshot.digital', '', 0, '', '465', '', '', 1);
-  }
+  _sqliteDb.exec(sql);
 };
 
-ensureDefaults();
+const dbGet = async (sql, args = []) => {
+  if (dbMode() === 'turso') {
+    const res = await _tursoClient.execute({ sql, args });
+    return res.rows?.[0];
+  }
+  const stmt = _sqliteDb.prepare(sql);
+  return stmt.get(...args);
+};
+
+const dbAll = async (sql, args = []) => {
+  if (dbMode() === 'turso') {
+    const res = await _tursoClient.execute({ sql, args });
+    return res.rows || [];
+  }
+  const stmt = _sqliteDb.prepare(sql);
+  return stmt.all(...args);
+};
+
+const dbRun = async (sql, args = []) => {
+  if (dbMode() === 'turso') {
+    const res = await _tursoClient.execute({ sql, args });
+    return { changes: Number(res.rowsAffected || 0) };
+  }
+  const stmt = _sqliteDb.prepare(sql);
+  const info = stmt.run(...args);
+  return { changes: Number(info?.changes || 0) };
+};
+
+const initDb = async () => {
+  if (dbMode() === 'turso') {
+    const { createClient } = await import('@libsql/client');
+    _tursoClient = createClient({ url: TURSO_DATABASE_URL, authToken: TURSO_AUTH_TOKEN || undefined });
+  } else {
+    try {
+      fs.mkdirSync(path.dirname(DB_PATH), { recursive: true });
+    } catch (e) {
+      console.warn('[server] Failed to ensure DB directory exists:', e);
+    }
+    _sqliteDb = new DatabaseSync(DB_PATH);
+    _sqliteDb.exec('PRAGMA journal_mode = WAL;');
+  }
+
+  await dbExec(`
+    CREATE TABLE IF NOT EXISTS submissions (
+      id TEXT PRIMARY KEY,
+      submittedAt TEXT NOT NULL,
+      data TEXT NOT NULL
+    );
+  `);
+
+  await dbExec(`
+    CREATE TABLE IF NOT EXISTS admin_users (
+      username TEXT PRIMARY KEY,
+      passwordHash TEXT NOT NULL
+    );
+  `);
+
+  await dbExec(`
+    CREATE TABLE IF NOT EXISTS sessions (
+      tokenHash TEXT PRIMARY KEY,
+      expiresAt INTEGER NOT NULL
+    );
+  `);
+
+  await dbExec(`
+    CREATE TABLE IF NOT EXISTS settings (
+      id INTEGER PRIMARY KEY CHECK (id = 1),
+      supportEmail TEXT NOT NULL,
+      notificationEmail TEXT NOT NULL,
+      isEnabled INTEGER NOT NULL,
+      smtpHost TEXT NOT NULL,
+      smtpPort TEXT NOT NULL,
+      smtpUser TEXT NOT NULL,
+      smtpPass TEXT NOT NULL,
+      useSSL INTEGER NOT NULL
+    );
+  `);
+
+  await dbExec(`
+    CREATE INDEX IF NOT EXISTS idx_submissions_submittedAt
+    ON submissions(submittedAt);
+  `);
+
+  await dbExec(`
+    CREATE INDEX IF NOT EXISTS idx_sessions_expiresAt
+    ON sessions(expiresAt);
+  `);
+};
+
+const ensureDefaults = async () => {
+  const admin = await dbGet('SELECT username FROM admin_users WHERE username = ?', ['admin']);
+  if (!admin) {
+    const passwordHash = bcrypt.hashSync('admin123', 10);
+    await dbRun('INSERT INTO admin_users (username, passwordHash) VALUES (?, ?)', ['admin', passwordHash]);
+  }
+
+  const s = await dbGet('SELECT id FROM settings WHERE id = 1');
+  if (!s) {
+    await dbRun(
+      'INSERT INTO settings (id, supportEmail, notificationEmail, isEnabled, smtpHost, smtpPort, smtpUser, smtpPass, useSSL) VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?)',
+      ['it-support@moonshot.digital', '', 0, '', '465', '', '', 1]
+    );
+  }
+};
 
 const app = express();
 if (process.env.NODE_ENV === 'production') {
@@ -121,30 +170,36 @@ const SESSION_TTL_MS = 1000 * 60 * 60 * 24 * 7;
 
 const sessionTokenHash = (token) => crypto.createHash('sha256').update(token).digest('hex');
 
-const createSession = () => {
+const createSession = async () => {
   const token = crypto.randomBytes(32).toString('hex');
   const tokenHash = sessionTokenHash(token);
   const expiresAt = Date.now() + SESSION_TTL_MS;
 
-  db.prepare('DELETE FROM sessions WHERE expiresAt < ?').run(Date.now());
-  db.prepare('INSERT INTO sessions (tokenHash, expiresAt) VALUES (?, ?)').run(tokenHash, expiresAt);
+  await dbRun('DELETE FROM sessions WHERE expiresAt < ?', [Date.now()]);
+  await dbRun('INSERT INTO sessions (tokenHash, expiresAt) VALUES (?, ?)', [tokenHash, expiresAt]);
 
   return { token, expiresAt };
 };
 
-const isAuthenticated = (req) => {
+const isAuthenticated = async (req) => {
   const token = req.cookies?.[SESSION_COOKIE];
   if (!token || typeof token !== 'string') return false;
   const tokenHash = sessionTokenHash(token);
-  const row = db.prepare('SELECT expiresAt FROM sessions WHERE tokenHash = ?').get(tokenHash);
+  const row = await dbGet('SELECT expiresAt FROM sessions WHERE tokenHash = ?', [tokenHash]);
   if (!row) return false;
-  if (typeof row.expiresAt !== 'number' || row.expiresAt < Date.now()) return false;
+  const exp = Number(row.expiresAt);
+  if (!Number.isFinite(exp) || exp < Date.now()) return false;
   return true;
 };
 
-const requireAuth = (req, res, next) => {
-  if (!isAuthenticated(req)) return res.status(401).json({ error: 'Unauthorized' });
-  next();
+const requireAuth = async (req, res, next) => {
+  try {
+    if (!(await isAuthenticated(req))) return res.status(401).json({ error: 'Unauthorized' });
+    next();
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: 'Auth check failed' });
+  }
 };
 
 const trimString = (v) => (typeof v === 'string' ? v.trim() : v);
@@ -442,11 +497,9 @@ const emailSchema = z
   .passthrough();
 
 const sendEmailWithCurrentSettings = async (payload) => {
-  const row = db
-    .prepare(
-      'SELECT supportEmail, notificationEmail, isEnabled, smtpHost, smtpPort, smtpUser, smtpPass, useSSL FROM settings WHERE id = 1'
-    )
-    .get();
+  const row = await dbGet(
+    'SELECT supportEmail, notificationEmail, isEnabled, smtpHost, smtpPort, smtpUser, smtpPass, useSSL FROM settings WHERE id = 1'
+  );
 
   if (!row) return { skipped: true, reason: 'settings_missing' };
   if (!row.isEnabled) return { skipped: true, reason: 'disabled' };
@@ -622,10 +675,15 @@ const sendEmailWithCurrentSettings = async (payload) => {
 };
 
 app.get('/api/admin/me', (req, res) => {
-  res.json({ authenticated: isAuthenticated(req) });
+  isAuthenticated(req)
+    .then((authenticated) => res.json({ authenticated }))
+    .catch((e) => {
+      console.error(e);
+      res.status(500).json({ error: 'Auth check failed' });
+    });
 });
 
-app.post('/api/admin/login', (req, res) => {
+app.post('/api/admin/login', async (req, res) => {
   const schema = z.object({ password: z.string().min(1) });
   const parsed = schema.safeParse(req.body);
   if (!parsed.success) {
@@ -636,12 +694,12 @@ app.post('/api/admin/login', (req, res) => {
   }
 
   const { password } = parsed.data;
-  const row = db.prepare('SELECT passwordHash FROM admin_users WHERE username = ?').get('admin');
+  const row = await dbGet('SELECT passwordHash FROM admin_users WHERE username = ?', ['admin']);
   if (!row || !bcrypt.compareSync(password, row.passwordHash)) {
     return res.status(401).json({ error: 'Invalid password' });
   }
 
-  const { token, expiresAt } = createSession();
+  const { token, expiresAt } = await createSession();
   res.cookie(SESSION_COOKIE, token, {
     httpOnly: true,
     sameSite: 'lax',
@@ -653,18 +711,18 @@ app.post('/api/admin/login', (req, res) => {
   res.json({ success: true });
 });
 
-app.post('/api/admin/logout', (req, res) => {
+app.post('/api/admin/logout', async (req, res) => {
   const token = req.cookies?.[SESSION_COOKIE];
   if (token && typeof token === 'string') {
     const tokenHash = sessionTokenHash(token);
-    db.prepare('DELETE FROM sessions WHERE tokenHash = ?').run(tokenHash);
+    await dbRun('DELETE FROM sessions WHERE tokenHash = ?', [tokenHash]);
   }
 
   res.clearCookie(SESSION_COOKIE, { path: '/' });
   res.json({ success: true });
 });
 
-app.post('/api/admin/password', requireAuth, (req, res) => {
+app.post('/api/admin/password', requireAuth, async (req, res) => {
   const schema = z.object({ password: z.string().min(6) });
   const parsed = schema.safeParse(req.body);
   if (!parsed.success) {
@@ -675,21 +733,19 @@ app.post('/api/admin/password', requireAuth, (req, res) => {
   }
 
   const passwordHash = bcrypt.hashSync(parsed.data.password, 10);
-  db.prepare('UPDATE admin_users SET passwordHash = ? WHERE username = ?').run(passwordHash, 'admin');
+  await dbRun('UPDATE admin_users SET passwordHash = ? WHERE username = ?', [passwordHash, 'admin']);
   res.json({ success: true });
 });
 
-app.get('/api/settings/public', (req, res) => {
-  const row = db.prepare('SELECT supportEmail FROM settings WHERE id = 1').get();
+app.get('/api/settings/public', async (req, res) => {
+  const row = await dbGet('SELECT supportEmail FROM settings WHERE id = 1');
   res.json({ supportEmail: row?.supportEmail || 'it-support@moonshot.digital' });
 });
 
-app.get('/api/settings', requireAuth, (req, res) => {
-  const row = db
-    .prepare(
-      'SELECT supportEmail, notificationEmail, isEnabled, smtpHost, smtpPort, smtpUser, smtpPass, useSSL FROM settings WHERE id = 1'
-    )
-    .get();
+app.get('/api/settings', requireAuth, async (req, res) => {
+  const row = await dbGet(
+    'SELECT supportEmail, notificationEmail, isEnabled, smtpHost, smtpPort, smtpUser, smtpPass, useSSL FROM settings WHERE id = 1'
+  );
 
   if (!row) return res.status(500).json({ error: 'Settings missing' });
 
@@ -705,7 +761,7 @@ app.get('/api/settings', requireAuth, (req, res) => {
   });
 });
 
-app.put('/api/settings', requireAuth, (req, res) => {
+app.put('/api/settings', requireAuth, async (req, res) => {
   const parsed = settingsSchema.safeParse(req.body);
   if (!parsed.success) {
     return res.status(400).json({
@@ -715,17 +771,18 @@ app.put('/api/settings', requireAuth, (req, res) => {
   }
 
   const s = parsed.data;
-  db.prepare(
-    'UPDATE settings SET supportEmail = ?, notificationEmail = ?, isEnabled = ?, smtpHost = ?, smtpPort = ?, smtpUser = ?, smtpPass = ?, useSSL = ? WHERE id = 1'
-  ).run(
-    s.supportEmail,
-    s.notificationEmail,
-    s.isEnabled ? 1 : 0,
-    s.smtpHost,
-    s.smtpPort,
-    s.smtpUser,
-    s.smtpPass,
-    s.useSSL ? 1 : 0
+  await dbRun(
+    'UPDATE settings SET supportEmail = ?, notificationEmail = ?, isEnabled = ?, smtpHost = ?, smtpPort = ?, smtpUser = ?, smtpPass = ?, useSSL = ? WHERE id = 1',
+    [
+      s.supportEmail,
+      s.notificationEmail,
+      s.isEnabled ? 1 : 0,
+      s.smtpHost,
+      s.smtpPort,
+      s.smtpUser,
+      s.smtpPass,
+      s.useSSL ? 1 : 0,
+    ]
   );
 
   res.json({ success: true });
@@ -759,10 +816,9 @@ app.post('/api/send-email', requireAuth, async (req, res) => {
   }
 });
 
-app.get('/api/submissions', requireAuth, (req, res) => {
+app.get('/api/submissions', requireAuth, async (req, res) => {
   try {
-    const stmt = db.prepare('SELECT id, submittedAt, data FROM submissions ORDER BY submittedAt DESC');
-    const rows = stmt.all();
+    const rows = await dbAll('SELECT id, submittedAt, data FROM submissions ORDER BY submittedAt DESC');
 
     const submissions = rows.map(r => {
       const parsed = JSON.parse(r.data);
@@ -833,8 +889,11 @@ app.post('/api/submissions', async (req, res) => {
     const submission = parsed.data;
     const { id, submittedAt } = submission;
 
-    const stmt = db.prepare('INSERT INTO submissions (id, submittedAt, data) VALUES (?, ?, ?)');
-    stmt.run(id, submittedAt, JSON.stringify(submission));
+    await dbRun('INSERT INTO submissions (id, submittedAt, data) VALUES (?, ?, ?)', [
+      id,
+      submittedAt,
+      JSON.stringify(submission),
+    ]);
 
     let emailResult = { skipped: true, reason: 'not_attempted' };
     try {
@@ -864,13 +923,12 @@ app.post('/api/submissions', async (req, res) => {
   }
 });
 
-app.delete('/api/submissions/:id', requireAuth, (req, res) => {
+app.delete('/api/submissions/:id', requireAuth, async (req, res) => {
   try {
     const { id } = req.params;
     if (!id) return res.status(400).json({ error: 'Missing id' });
 
-    const stmt = db.prepare('DELETE FROM submissions WHERE id = ?');
-    const info = stmt.run(id);
+    const info = await dbRun('DELETE FROM submissions WHERE id = ?', [id]);
     res.json({ success: true, deleted: info.changes });
   } catch (err) {
     console.error(err);
@@ -884,7 +942,22 @@ if (fs.existsSync(DIST_DIR)) {
   });
 }
 
-app.listen(PORT, () => {
-  console.log(`[server] API running on http://localhost:${PORT}`);
-  console.log(`[server] SQLite DB: ${DB_PATH}`);
+const startServer = async () => {
+  await initDb();
+  await ensureDefaults();
+
+  app.listen(PORT, () => {
+    console.log(`[server] API running on http://localhost:${PORT}`);
+    console.log(`[server] DB mode: ${dbMode()}`);
+    if (dbMode() === 'turso') {
+      console.log(`[server] Turso URL: ${TURSO_DATABASE_URL}`);
+    } else {
+      console.log(`[server] SQLite DB: ${DB_PATH}`);
+    }
+  });
+};
+
+startServer().catch((e) => {
+  console.error('[server] Failed to start:', e);
+  process.exit(1);
 });
