@@ -73,22 +73,15 @@ const AdminDashboard: React.FC<Props> = ({ submissions, emailSettings, onUpdateE
       return;
     }
 
-    const selectedPayload = selected
-      ? {
-          ...selected,
-          notificationEmail: tempSettings.notificationEmail,
-        }
-      : {
-          notificationEmail: tempSettings.notificationEmail,
+    if (!selected) {
+      alert('Select a lead from the list first to generate a full PDF that matches the Admin view.');
+      return;
+    }
 
-          // Dummy test data that matches your FormData fields
-          companyName: 'TEST COMPANY',
-          contactPerson: 'Test User',
-          email: 'test@gmail.com',
-          phoneNumber: '+639171234567',
-          projectType: 'TEST PROJECT',
-          budgetDeadline: 'TEST BUDGET / TIMELINE',
-        };
+    const selectedPayload = {
+      ...selected,
+      notificationEmail: tempSettings.notificationEmail,
+    };
 
     const res = await fetch('/api/send-email', {
       method: 'POST',
