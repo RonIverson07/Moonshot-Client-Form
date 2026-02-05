@@ -1,6 +1,7 @@
 
 import React, { useEffect, useState } from 'react';
 import { Logo } from '../constants';
+import { apiUrl, setAdminToken } from '../api';
 
 interface Props {
   onLoginSuccess: () => void;
@@ -15,7 +16,7 @@ const AdminLogin: React.FC<Props> = ({ onLoginSuccess }) => {
   useEffect(() => {
     const loadSupportEmail = async () => {
       try {
-        const res = await fetch('/api/settings/public');
+        const res = await fetch(apiUrl('/api/settings/public'));
         if (!res.ok) return;
         const data = await res.json();
         if (data?.supportEmail) setSupportEmail(data.supportEmail);
@@ -30,14 +31,21 @@ const AdminLogin: React.FC<Props> = ({ onLoginSuccess }) => {
     e.preventDefault();
 
     try {
-      const res = await fetch('/api/admin/login', {
+      const res = await fetch(apiUrl('/api/admin/login'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        credentials: 'include',
         body: JSON.stringify({ password }),
       });
 
       if (res.ok) {
+        try {
+          const data = await res.json();
+          if (data?.token && typeof data.token === 'string') {
+            setAdminToken(data.token);
+          }
+        } catch {
+          // ignore
+        }
         onLoginSuccess();
         return;
       }

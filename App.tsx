@@ -4,8 +4,9 @@ import ClientForm from './components/ClientForm';
 import AdminDashboard from './components/AdminDashboard';
 import AdminLogin from './components/AdminLogin';
 import { FormData, EmailSettings } from './types';
+import { apiUrl, clearAdminToken, getAdminToken, withAdminAuth } from './api';
 
-const API_SUBMISSIONS_URL = '/api/submissions';
+const API_SUBMISSIONS_URL = apiUrl('/api/submissions');
 
 const normalizeEmailSettings = (raw: any): EmailSettings => {
   const supportEmail = typeof raw?.supportEmail === 'string' ? raw.supportEmail : 'it-support@moonshot.digital';
@@ -49,20 +50,26 @@ const App: React.FC = () => {
 
     const bootstrapAdmin = async () => {
       try {
-        const res = await fetch('/api/admin/me', { credentials: 'include' });
+        const token = getAdminToken();
+        if (!token) {
+          setIsAuthenticated(false);
+          return;
+        }
+
+        const res = await fetch(apiUrl('/api/admin/me'), withAdminAuth());
         if (!res.ok) throw new Error('Failed to check session');
         const data = await res.json();
         const authed = !!data?.authenticated;
         setIsAuthenticated(authed);
 
         if (authed) {
-          const settingsRes = await fetch('/api/settings', { credentials: 'include' });
+          const settingsRes = await fetch(apiUrl('/api/settings'), withAdminAuth());
           if (settingsRes.ok) {
             const s = await settingsRes.json();
             setEmailSettings(normalizeEmailSettings(s));
           }
 
-          const submissionsRes = await fetch(API_SUBMISSIONS_URL, { credentials: 'include' });
+          const submissionsRes = await fetch(API_SUBMISSIONS_URL, withAdminAuth());
           if (submissionsRes.ok) {
             const subData = await submissionsRes.json();
             setSubmissions(subData?.submissions || []);
@@ -104,7 +111,7 @@ const App: React.FC = () => {
   const handleLoginSuccess = () => {
     setIsAuthenticated(true);
 
-    fetch('/api/settings', { credentials: 'include' })
+    fetch(apiUrl('/api/settings'), withAdminAuth())
       .then(r => (r.ok ? r.json() : null))
       .then(s => {
         if (s) setEmailSettings(normalizeEmailSettings(s));
@@ -113,7 +120,7 @@ const App: React.FC = () => {
         // ignore
       });
 
-    fetch(API_SUBMISSIONS_URL, { credentials: 'include' })
+    fetch(API_SUBMISSIONS_URL, withAdminAuth())
       .then(r => (r.ok ? r.json() : null))
       .then(s => {
         if (s?.submissions) setSubmissions(s.submissions);
@@ -125,7 +132,8 @@ const App: React.FC = () => {
 
   const handleLogout = () => {
     setIsAuthenticated(false);
-    fetch('/api/admin/logout', { method: 'POST', credentials: 'include' }).catch(() => {
+    clearAdminToken();
+    fetch(apiUrl('/api/admin/logout'), withAdminAuth({ method: 'POST' })).catch(() => {
       // ignore
     });
     window.location.hash = '';
@@ -133,21 +141,23 @@ const App: React.FC = () => {
 
   const updateEmailSettings = async (settings: EmailSettings): Promise<boolean> => {
     try {
-      const res = await fetch('/api/settings', {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        credentials: 'include',
-        body: JSON.stringify({
-          supportEmail: settings.supportEmail || 'it-support@moonshot.digital',
-          notificationEmail: settings.notificationEmail || '',
-          isEnabled: !!settings.isEnabled,
-          smtpHost: settings.smtpHost || '',
-          smtpPort: settings.smtpPort || '465',
-          smtpUser: settings.smtpUser || '',
-          smtpPass: settings.smtpPass || '',
-          useSSL: settings.useSSL !== false,
-        }),
-      });
+      const res = await fetch(
+        apiUrl('/api/settings'),
+        withAdminAuth({
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            supportEmail: settings.supportEmail || 'it-support@moonshot.digital',
+            notificationEmail: settings.notificationEmail || '',
+            isEnabled: !!settings.isEnabled,
+            smtpHost: settings.smtpHost || '',
+            smtpPort: settings.smtpPort || '465',
+            smtpUser: settings.smtpUser || '',
+            smtpPass: settings.smtpPass || '',
+            useSSL: settings.useSSL !== false,
+          }),
+        })
+      );
 
       if (!res.ok) return false;
       setEmailSettings(normalizeEmailSettings(settings));
@@ -159,7 +169,7 @@ const App: React.FC = () => {
   };
 
   const deleteSubmission = (id: string) => {
-    fetch(`${API_SUBMISSIONS_URL}/${encodeURIComponent(id)}`, { method: 'DELETE', credentials: 'include' }).catch(() => {
+    fetch(`${API_SUBMISSIONS_URL}/${encodeURIComponent(id)}`, withAdminAuth({ method: 'DELETE' })).catch(() => {
       // ignore
     });
 

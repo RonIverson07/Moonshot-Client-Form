@@ -2,6 +2,7 @@
 import React, { useEffect, useState } from 'react';
 import { FormData, EmailSettings } from '../types';
 import { Logo, BUSINESS_NAME } from '../constants';
+import { apiUrl, withAdminAuth } from '../api';
 
 interface Props {
   submissions: FormData[];
@@ -83,14 +84,16 @@ const AdminDashboard: React.FC<Props> = ({ submissions, emailSettings, onUpdateE
       notificationEmail: tempSettings.notificationEmail,
     };
 
-    const res = await fetch('/api/send-email', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      credentials: 'include',
-      body: JSON.stringify({
-        ...selectedPayload,
-      }),
-    });
+    const res = await fetch(
+      apiUrl('/api/send-email'),
+      withAdminAuth({
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          ...selectedPayload,
+        }),
+      })
+    );
 
     const result = await res.json();
 
@@ -140,12 +143,14 @@ const AdminDashboard: React.FC<Props> = ({ submissions, emailSettings, onUpdateE
   };
 
   if (adminPass) {
-    fetch('/api/admin/password', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      credentials: 'include',
-      body: JSON.stringify({ password: adminPass }),
-    })
+    fetch(
+      apiUrl('/api/admin/password'),
+      withAdminAuth({
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ password: adminPass }),
+      })
+    )
       .then(r => (r.ok ? r.json() : null))
       .catch(() => {
         // ignore

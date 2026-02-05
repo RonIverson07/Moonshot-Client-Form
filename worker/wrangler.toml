@@ -1,0 +1,7 @@
+name = "moonshot-client-form-api"
+main = "src/index.ts"
+compatibility_date = "2026-02-05"
+
+[vars]
+FRONTEND_ORIGIN = "https://quotation.moonshotdigital.com.ph"
+SUPPORT_EMAIL = "it-support@moonshot.digital"
