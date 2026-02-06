@@ -51,27 +51,8 @@ $email = trim((string)($data['email'] ?? ''));
 $phone = trim((string)($data['phoneNumber'] ?? ''));
 $submittedAt = trim((string)($data['submittedAt'] ?? ''));
 
-$subjectCompany = $company !== '' ? $company : 'New Lead';
-$subject = 'New quotation inquiry: ' . $subjectCompany;
-
-$lines = [];
-$lines[] = 'New inquiry received';
-$lines[] = '';
-if ($company !== '') $lines[] = 'Company: ' . $company;
-if ($contact !== '') $lines[] = 'Contact: ' . $contact;
-if ($email !== '') $lines[] = 'Email: ' . $email;
-if ($phone !== '') $lines[] = 'Phone: ' . $phone;
-if ($submittedAt !== '') $lines[] = 'Submitted At: ' . $submittedAt;
-$lines[] = '';
-$lines[] = '--- Raw payload (JSON) ---';
-$debugData = $data;
-if (isset($debugData['attachment']) && is_array($debugData['attachment'])) {
-  if (isset($debugData['attachment']['contentBase64'])) {
-    $debugData['attachment']['contentBase64'] = '[omitted]';
-  }
-}
-$lines[] = json_encode($debugData, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES);
-$body = implode("\n", $lines);
+$subject = 'Thank you for submitting application in our website.';
+$body = 'Thank you for submitting application in our website.';
 
 $from = trim($FROM_EMAIL);
 if ($from === '' || !filter_var($from, FILTER_VALIDATE_EMAIL)) {
