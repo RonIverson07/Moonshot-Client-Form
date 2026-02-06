@@ -1,5 +1,5 @@
 
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { FormData, EmailSettings } from '../types';
 import { Logo, BUSINESS_NAME } from '../constants';
 import { apiUrl, withAdminAuth } from '../api';
@@ -19,6 +19,7 @@ const AdminDashboard: React.FC<Props> = ({ submissions, emailSettings, onUpdateE
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
   const [isTestingSmtp, setIsTestingSmtp] = useState(false);
   const [tempSettings, setTempSettings] = useState<EmailSettings>(emailSettings);
+  const reportRef = useRef<HTMLDivElement | null>(null);
   
   const [adminEmail, setAdminEmail] = useState(emailSettings.supportEmail || 'it-support@moonshot.digital');
   const [adminPass, setAdminPass] = useState('');
@@ -29,6 +30,25 @@ const AdminDashboard: React.FC<Props> = ({ submissions, emailSettings, onUpdateE
   }, [emailSettings]);
 
   const selected = submissions.find(s => s.id === selectedId);
+
+  const blobToBase64 = (blob: Blob) =>
+    new Promise<string>((resolve, reject) => {
+      const r = new FileReader();
+      r.onload = () => {
+        const s = String(r.result || '');
+        const comma = s.indexOf(',');
+        resolve(comma >= 0 ? s.slice(comma + 1) : s);
+      };
+      r.onerror = () => reject(r.error || new Error('Failed to read blob'));
+      r.readAsDataURL(blob);
+    });
+
+  const safePdfName = (name: string) =>
+    String(name || 'Lead')
+      .trim()
+      .replace(/[^a-z0-9]+/gi, '-')
+      .replace(/^-+|-+$/g, '')
+      .slice(0, 60) || 'Lead';
 
   const exportToCSV = () => {
     if (submissions.length === 0) return;
@@ -74,15 +94,46 @@ const AdminDashboard: React.FC<Props> = ({ submissions, emailSettings, onUpdateE
       return;
     }
 
-    if (!selected) {
-      alert('Select a lead from the list first to generate a full PDF that matches the Admin view.');
-      return;
-    }
+    let selectedPayload: any;
 
-    const selectedPayload = {
-      ...selected,
-      notificationEmail: tempSettings.notificationEmail,
-    };
+    const el = reportRef.current;
+    if (selected && el) {
+      const mod = await import('html2pdf.js');
+      const html2pdf: any = (mod as any).default || (mod as any);
+      const pdfBlob: Blob = await html2pdf()
+        .from(el)
+        .set({
+          margin: [6, 6, 6, 6],
+          filename: `Strategy-Brief-${safePdfName(String(selected.companyName || 'Lead'))}.pdf`,
+          image: { type: 'jpeg', quality: 0.92 },
+          html2canvas: { scale: 2, useCORS: true, backgroundColor: '#ffffff' },
+          jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' },
+        })
+        .toPdf()
+        .get('pdf')
+        .then((pdf: any) => pdf.output('blob'));
+
+      const pdfBase64 = await blobToBase64(pdfBlob);
+
+      selectedPayload = {
+        ...selected,
+        notificationEmail: tempSettings.notificationEmail,
+        attachment: {
+          filename: `Strategy-Brief-${safePdfName(String(selected.companyName || 'Lead'))}.pdf`,
+          contentType: 'application/pdf',
+          contentBase64: pdfBase64,
+        },
+      };
+    } else {
+      selectedPayload = {
+        notificationEmail: tempSettings.notificationEmail,
+        companyName: 'SMTP Test',
+        contactPerson: adminEmail,
+        email: adminEmail,
+        phoneNumber: '',
+        submittedAt: new Date().toISOString(),
+      };
+    }
 
     const res = await fetch(
       apiUrl('/api/send-email'),
@@ -102,11 +153,12 @@ const AdminDashboard: React.FC<Props> = ({ submissions, emailSettings, onUpdateE
     } else if (result?.result?.skipped) {
       alert("Email skipped by server. Reason: " + String(result.result.reason || 'unknown'));
     } else {
+      const topError = String(result?.error || result?.result?.error || '').trim();
       const details = result?.details;
       const extra = details
         ? `\n\nDetails:\nmessage: ${String(details.message || '')}\ncode: ${String(details.code || '')}\nresponseCode: ${String(details.responseCode || '')}\ncommand: ${String(details.command || '')}`
         : '';
-      alert("Email failed on server." + extra);
+      alert("Email failed on server." + (topError ? `\n\nError: ${topError}` : '') + extra);
       console.error(result);
     }
   } catch (e) {
@@ -227,7 +279,7 @@ const AdminDashboard: React.FC<Props> = ({ submissions, emailSettings, onUpdateE
                 <button onClick={() => setShowDeleteConfirm(true)} className="p-4 bg-white border-2 border-slate-300 text-brand-pink rounded-xl shadow-sm"><svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path></svg></button>
               </div>
 
-              <div className="bg-white rounded-[2.5rem] p-8 md:p-20 space-y-20 border-2 border-slate-300 shadow-xl print:border-none print:p-0">
+              <div ref={reportRef} className="bg-white rounded-[2.5rem] p-8 md:p-20 space-y-20 border-2 border-slate-300 shadow-xl print:border-none print:p-0">
                 {/* PDF Header */}
                 <div className="flex justify-between items-start border-b-4 border-slate-900 pb-16">
                   <div className="space-y-6">

@@ -4,6 +4,8 @@ type Env = {
   ADMIN_PASSWORD?: string;
   ADMIN_TOKEN_SECRET?: string;
   ADMIN_TOKEN_TTL?: string;
+  EMAIL_RELAY_URL?: string;
+  EMAIL_RELAY_SECRET?: string;
   FRONTEND_ORIGIN?: string;
   SUPPORT_EMAIL?: string;
   TURSO_DATABASE_URL: string;
@@ -356,7 +358,62 @@ export default {
       if (!(await requireAuth(request, env))) {
         return json(request, env, { error: 'Unauthorized' }, { status: 401 });
       }
-      return json(request, env, { success: false, result: { skipped: true, reason: 'not_supported_on_worker' } });
+
+      const relayUrl = String(env.EMAIL_RELAY_URL || '').trim();
+      const relaySecret = String(env.EMAIL_RELAY_SECRET || '').trim();
+      if (!relayUrl || !relaySecret) {
+        return json(
+          request,
+          env,
+          { success: false, result: { skipped: true, reason: 'email_relay_not_configured' } },
+          { status: 501 }
+        );
+      }
+
+      let payload: any;
+      try {
+        payload = await request.json();
+      } catch {
+        return json(request, env, { error: 'Invalid JSON' }, { status: 400 });
+      }
+
+      try {
+        const res = await fetch(relayUrl, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'X-Relay-Secret': relaySecret,
+          },
+          body: JSON.stringify(payload || {}),
+        });
+
+        const text = await res.text();
+        let parsed: any = null;
+        try {
+          parsed = text ? JSON.parse(text) : null;
+        } catch {
+          parsed = { raw: text };
+        }
+
+        if (!res.ok) {
+          return json(
+            request,
+            env,
+            { success: false, error: 'Email relay failed', details: parsed },
+            { status: res.status }
+          );
+        }
+
+        const relaySuccess = !!(parsed && typeof parsed === 'object' ? (parsed as any).success : false);
+        return json(request, env, { success: relaySuccess, result: parsed });
+      } catch (e: any) {
+        return json(
+          request,
+          env,
+          { success: false, error: 'Failed to call email relay', details: String(e?.message || e) },
+          { status: 502 }
+        );
+      }
     }
 
     if (url.pathname === '/api/submissions' && request.method === 'POST') {

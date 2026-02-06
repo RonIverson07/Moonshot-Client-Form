@@ -12,6 +12,9 @@ dist
 dist-ssr
 *.local
 
+.env.production
+dist.zip
+
 # Local database
 server/*.sqlite
 server/*.sqlite-*
