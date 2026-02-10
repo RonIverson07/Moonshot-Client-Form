@@ -10,8 +10,17 @@ interface Props {
 const AdminLogin: React.FC<Props> = ({ onLoginSuccess }) => {
   const [password, setPassword] = useState('');
   const [error, setError] = useState(false);
-  const [view, setView] = useState<'login' | 'forgot'>('login');
+  const [view, setView] = useState<'login' | 'forgot' | 'reset'>('login');
   const [supportEmail, setSupportEmail] = useState('it-support@moonshot.digital');
+  const [isSendingRecovery, setIsSendingRecovery] = useState(false);
+  const [recoverySent, setRecoverySent] = useState(false);
+  const [recoveryError, setRecoveryError] = useState('');
+  const [resetToken, setResetToken] = useState('');
+  const [newPassword, setNewPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
+  const [isResetting, setIsResetting] = useState(false);
+  const [resetSuccess, setResetSuccess] = useState(false);
+  const [resetError, setResetError] = useState('');
 
   useEffect(() => {
     const loadSupportEmail = async () => {
@@ -25,6 +34,21 @@ const AdminLogin: React.FC<Props> = ({ onLoginSuccess }) => {
       }
     };
     loadSupportEmail();
+  }, []);
+
+  useEffect(() => {
+    const applyHash = () => {
+      const raw = String(window.location.hash || '');
+      if (!raw.startsWith('#admin-reset')) return;
+      const query = raw.includes('?') ? raw.slice(raw.indexOf('?') + 1) : '';
+      const params = new URLSearchParams(query);
+      const token = params.get('token') || '';
+      setResetToken(token);
+      setView('reset');
+    };
+    applyHash();
+    window.addEventListener('hashchange', applyHash);
+    return () => window.removeEventListener('hashchange', applyHash);
   }, []);
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -58,6 +82,47 @@ const AdminLogin: React.FC<Props> = ({ onLoginSuccess }) => {
   };
 
   if (view === 'forgot') {
+    const sendRecoveryEmail = async () => {
+      setRecoveryError('');
+      setRecoverySent(false);
+      setIsSendingRecovery(true);
+      try {
+        const res = await fetch(apiUrl('/api/admin/password-reset/request'), {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({}),
+        });
+
+        if (!res.ok) {
+          const text = await res.text().catch(() => '');
+          setRecoveryError(text || 'Failed to send recovery email.');
+          return;
+        }
+
+        let data: any = null;
+        try {
+          data = await res.json();
+        } catch {
+          // ignore
+        }
+
+        if (data && typeof data === 'object' && 'sent' in data) {
+          if (data.sent === true) {
+            setRecoverySent(true);
+            return;
+          }
+          setRecoveryError('Email was not sent. Please check server relay configuration (EMAIL_RELAY_URL/EMAIL_RELAY_SECRET) and Support Email settings.');
+          return;
+        }
+
+        setRecoveryError('Unexpected server response. Please check server logs.');
+      } catch {
+        setRecoveryError('Failed to send recovery email.');
+      } finally {
+        setIsSendingRecovery(false);
+      }
+    };
+
     return (
       <div className="min-h-screen bg-[#F8FAFC] flex items-center justify-center p-4 md:p-6">
         <div className="max-w-md w-full bg-white p-8 md:p-12 rounded-[2rem] md:rounded-[2.5rem] shadow-xl border border-slate-100 text-center animate-in fade-in zoom-in duration-300">
@@ -76,8 +141,147 @@ const AdminLogin: React.FC<Props> = ({ onLoginSuccess }) => {
               <p className="text-brand-navy font-bold text-sm">{supportEmail}</p>
             </div>
           </div>
+          <div className="space-y-3 mb-4">
+            <button
+              onClick={sendRecoveryEmail}
+              disabled={isSendingRecovery}
+              className="w-full bg-brand-green text-white py-4 rounded-2xl font-black shadow-lg shadow-brand-green/20 hover:brightness-110 active:scale-95 transition-all uppercase text-[10px] tracking-[0.2em] disabled:opacity-60 disabled:cursor-not-allowed"
+            >
+              {isSendingRecovery ? 'Sending...' : 'Send Recovery Email'}
+            </button>
+            {recoverySent && (
+              <div className="p-3 bg-slate-50 rounded-xl border border-slate-100 text-[10px] font-bold text-slate-500 uppercase tracking-widest">
+                Reset link sent to support contact.
+              </div>
+            )}
+            {!!recoveryError && (
+              <div className="p-3 bg-brand-pink/10 rounded-xl border border-brand-pink/20 text-[10px] font-bold text-brand-pink uppercase tracking-widest">
+                {recoveryError}
+              </div>
+            )}
+          </div>
           <button 
             onClick={() => setView('login')}
+            className="w-full bg-slate-100 text-slate-600 py-4 rounded-2xl font-bold hover:bg-slate-200 transition-all uppercase text-[10px] tracking-widest"
+          >
+            Back to Login
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  if (view === 'reset') {
+    const submitReset = async (e: React.FormEvent) => {
+      e.preventDefault();
+      setResetError('');
+      setResetSuccess(false);
+
+      const token = String(resetToken || '').trim();
+      if (!token) {
+        setResetError('Missing reset token. Please use the link from your email again.');
+        return;
+      }
+      if (!newPassword || newPassword.length < 8) {
+        setResetError('Password must be at least 8 characters.');
+        return;
+      }
+      if (newPassword !== confirmPassword) {
+        setResetError('Passwords do not match.');
+        return;
+      }
+
+      setIsResetting(true);
+      try {
+        const res = await fetch(apiUrl('/api/admin/password-reset/confirm'), {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ token, newPassword }),
+        });
+
+        let data: any = null;
+        try {
+          data = await res.json();
+        } catch {
+          // ignore
+        }
+
+        if (!res.ok || !data?.success) {
+          setResetError(String(data?.error || 'Failed to reset password.'));
+          return;
+        }
+
+        setResetSuccess(true);
+        setNewPassword('');
+        setConfirmPassword('');
+      } catch {
+        setResetError('Failed to reset password.');
+      } finally {
+        setIsResetting(false);
+      }
+    };
+
+    return (
+      <div className="min-h-screen bg-[#F8FAFC] flex items-center justify-center p-4 md:p-6">
+        <div className="max-w-md w-full bg-white p-8 md:p-12 rounded-[2rem] md:rounded-[2.5rem] shadow-xl border border-slate-100 text-center animate-in fade-in zoom-in duration-300">
+          <div className="w-16 h-16 bg-slate-50 rounded-full flex items-center justify-center mx-auto mb-6">
+            <svg className="w-8 h-8 text-brand-navy opacity-40" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.5" d="M16 11V7a4 4 0 00-8 0v4m-2 0h12a2 2 0 012 2v7a2 2 0 01-2 2H6a2 2 0 01-2-2v-7a2 2 0 012-2z" />
+            </svg>
+          </div>
+          <h2 className="text-xl md:text-2xl font-black text-brand-navy mb-3 tracking-tighter uppercase">Reset Password</h2>
+          <p className="text-slate-500 text-sm font-normal leading-relaxed mb-8">
+            Set a new admin password.
+          </p>
+
+          <form onSubmit={submitReset} className="space-y-4 mb-4">
+            <div className="text-left">
+              <label className="text-[10px] font-bold text-brand-green uppercase tracking-[0.2em] ml-1 mb-3 block">New Password</label>
+              <input
+                type="password"
+                value={newPassword}
+                onChange={(e) => setNewPassword(e.target.value)}
+                className="w-full bg-slate-50 border-2 border-slate-100 focus:border-brand-green focus:ring-4 focus:ring-brand-green/5 p-4 md:p-5 rounded-2xl text-slate-900 outline-none transition-all font-mono text-center tracking-widest"
+                placeholder="••••••••"
+              />
+            </div>
+
+            <div className="text-left">
+              <label className="text-[10px] font-bold text-brand-green uppercase tracking-[0.2em] ml-1 mb-3 block">Confirm Password</label>
+              <input
+                type="password"
+                value={confirmPassword}
+                onChange={(e) => setConfirmPassword(e.target.value)}
+                className="w-full bg-slate-50 border-2 border-slate-100 focus:border-brand-green focus:ring-4 focus:ring-brand-green/5 p-4 md:p-5 rounded-2xl text-slate-900 outline-none transition-all font-mono text-center tracking-widest"
+                placeholder="••••••••"
+              />
+            </div>
+
+            <button
+              type="submit"
+              disabled={isResetting}
+              className="w-full bg-brand-green text-white py-4 rounded-2xl font-black shadow-lg shadow-brand-green/20 hover:brightness-110 active:scale-95 transition-all uppercase text-[10px] tracking-[0.2em] disabled:opacity-60 disabled:cursor-not-allowed"
+            >
+              {isResetting ? 'Resetting...' : 'Set New Password'}
+            </button>
+          </form>
+
+          {resetSuccess && (
+            <div className="p-3 bg-slate-50 rounded-xl border border-slate-100 text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-4">
+              Password updated. You can now log in.
+            </div>
+          )}
+          {!!resetError && (
+            <div className="p-3 bg-brand-pink/10 rounded-xl border border-brand-pink/20 text-[10px] font-bold text-brand-pink uppercase tracking-widest mb-4">
+              {resetError}
+            </div>
+          )}
+
+          <button
+            onClick={() => {
+              window.location.hash = '#admin';
+              setView('login');
+            }}
             className="w-full bg-slate-100 text-slate-600 py-4 rounded-2xl font-bold hover:bg-slate-200 transition-all uppercase text-[10px] tracking-widest"
           >
             Back to Login

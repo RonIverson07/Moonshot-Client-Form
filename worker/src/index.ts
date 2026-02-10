@@ -7,6 +7,8 @@ type Env = {
   EMAIL_RELAY_URL?: string;
   EMAIL_RELAY_SECRET?: string;
   FRONTEND_ORIGIN?: string;
+  PASSWORD_RESET_SECRET?: string;
+  PASSWORD_RESET_TTL_MINUTES?: string;
   SUPPORT_EMAIL?: string;
   TURSO_DATABASE_URL: string;
   TURSO_AUTH_TOKEN: string;
@@ -63,9 +65,82 @@ const ensureSchema = (env: Env) => {
       `,
       args: [String(env.SUPPORT_EMAIL || 'it-support@moonshot.digital').trim()],
     });
+
+    await db.execute(`
+      CREATE TABLE IF NOT EXISTS admin_users (
+        username TEXT PRIMARY KEY,
+        passwordHash TEXT NOT NULL,
+        salt TEXT NOT NULL,
+        iterations INTEGER NOT NULL,
+        createdAt TEXT NOT NULL,
+        updatedAt TEXT NOT NULL
+      );
+    `);
+
+    await db.execute(`
+      CREATE TABLE IF NOT EXISTS password_reset_tokens (
+        tokenHash TEXT PRIMARY KEY,
+        username TEXT NOT NULL,
+        expiresAt TEXT NOT NULL,
+        createdAt TEXT NOT NULL,
+        usedAt TEXT
+      );
+    `);
+
+    const columnExists = async (table: string, column: string) => {
+      const res = await db.execute({ sql: `PRAGMA table_info(${table})`, args: [] });
+      const rows: any[] = Array.isArray((res as any)?.rows) ? (res as any).rows : [];
+      return rows.some(r => String((r as any)?.name || '') === column);
+    };
+
+    const addColumnIfMissing = async (table: string, column: string, typeSql: string) => {
+      try {
+        const exists = await columnExists(table, column);
+        if (exists) return;
+        await db.execute(`ALTER TABLE ${table} ADD COLUMN ${column} ${typeSql}`);
+      } catch {
+        // ignore
+      }
+    };
+
+    await addColumnIfMissing('admin_users', 'salt', "TEXT NOT NULL DEFAULT ''");
+    await addColumnIfMissing('admin_users', 'iterations', 'INTEGER NOT NULL DEFAULT 0');
+    await addColumnIfMissing('admin_users', 'createdAt', "TEXT NOT NULL DEFAULT ''");
+    await addColumnIfMissing('admin_users', 'updatedAt', "TEXT NOT NULL DEFAULT ''");
+    await addColumnIfMissing('password_reset_tokens', 'usedAt', 'TEXT');
   })();
 
   return schemaReady;
+};
+
+const base64UrlFromBytes = (bytes: Uint8Array) => base64UrlEncode(bytes);
+
+const utf8 = (s: string) => new TextEncoder().encode(s);
+
+const hmacSha256B64Url = async (secret: string, message: string) => {
+  const key = await crypto.subtle.importKey('raw', utf8(secret), { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']);
+  const sig = await crypto.subtle.sign('HMAC', key, utf8(message));
+  return base64UrlFromBytes(new Uint8Array(sig));
+};
+
+const derivePasswordHash = async (password: string, saltB64Url: string, iterations: number) => {
+  const salt = base64UrlDecode(saltB64Url);
+  const keyMaterial = await crypto.subtle.importKey('raw', utf8(password), 'PBKDF2', false, ['deriveBits']);
+  const bits = await crypto.subtle.deriveBits(
+    { name: 'PBKDF2', hash: 'SHA-256', salt, iterations },
+    keyMaterial,
+    256
+  );
+  return base64UrlFromBytes(new Uint8Array(bits));
+};
+
+const verifyPassword = async (password: string, record: any) => {
+  const salt = String(record?.salt || '');
+  const iterations = Number(record?.iterations || 0);
+  const expected = String(record?.passwordHash || '');
+  if (!salt || !expected || !Number.isFinite(iterations) || iterations < 1) return false;
+  const actual = await derivePasswordHash(password, salt, iterations);
+  return actual === expected;
 };
 
 const corsHeaders = (request: Request, env: Env) => {
@@ -226,13 +301,31 @@ export default {
       }
 
       const password = typeof body?.password === 'string' ? body.password : '';
-      const expected = String(env.ADMIN_PASSWORD || '').trim();
-      if (!expected) {
-        return json(request, env, { error: 'Admin password not configured' }, { status: 500 });
+      if (!password) return json(request, env, { error: 'Invalid password' }, { status: 401 });
+
+      let hasDbUser = false;
+      let dbAuthed = false;
+      try {
+        await ensureSchema(env);
+        const db = getClient(env);
+        const res = await db.execute({ sql: 'SELECT passwordHash, salt, iterations FROM admin_users WHERE username = ?', args: ['admin'] });
+        const row: any = res?.rows?.[0];
+        if (row) hasDbUser = true;
+        if (row) dbAuthed = await verifyPassword(password, row);
+      } catch {
+        // ignore
       }
 
-      if (!password || password !== expected) {
-        return json(request, env, { error: 'Invalid password' }, { status: 401 });
+      if (hasDbUser) {
+        if (!dbAuthed) return json(request, env, { error: 'Invalid password' }, { status: 401 });
+      } else {
+        const expected = String(env.ADMIN_PASSWORD || '').trim();
+        if (!expected) {
+          return json(request, env, { error: 'Admin password not configured' }, { status: 500 });
+        }
+        if (password !== expected) {
+          return json(request, env, { error: 'Invalid password' }, { status: 401 });
+        }
       }
 
       const ttl = Number(env.ADMIN_TOKEN_TTL || 60 * 60 * 24 * 7);
@@ -247,6 +340,199 @@ export default {
 
     if (url.pathname === '/api/admin/password' && request.method === 'POST') {
       return json(request, env, { error: 'Not implemented' }, { status: 501 });
+    }
+
+    if (url.pathname === '/api/admin/password-reset/request' && request.method === 'POST') {
+      try {
+        const relayUrl = String(env.EMAIL_RELAY_URL || '').trim();
+        const relaySecret = String(env.EMAIL_RELAY_SECRET || '').trim();
+        const resetSecret = String(env.PASSWORD_RESET_SECRET || '').trim();
+        const ttlMinutes = Number(env.PASSWORD_RESET_TTL_MINUTES || 15);
+        if (!relayUrl || !relaySecret || !resetSecret) {
+          return json(request, env, { success: true, sent: false }, { status: 200 });
+        }
+
+        let supportEmail = String(env.SUPPORT_EMAIL || '').trim();
+        try {
+          await ensureSchema(env);
+          const db = getClient(env);
+          const res = await db.execute('SELECT supportEmail FROM settings WHERE id = 1');
+          const row: any = res?.rows?.[0];
+          const fromDb = String(row?.supportEmail || '').trim();
+          if (fromDb) supportEmail = fromDb;
+        } catch {
+          // ignore
+        }
+        if (!supportEmail) return json(request, env, { success: true, sent: false }, { status: 200 });
+
+        const tokenBytes = crypto.getRandomValues(new Uint8Array(32));
+        const token = base64UrlFromBytes(tokenBytes);
+        const tokenHash = await hmacSha256B64Url(resetSecret, token);
+
+        const now = new Date();
+        const expires = new Date(now.getTime() + (Number.isFinite(ttlMinutes) ? ttlMinutes : 15) * 60 * 1000);
+        const createdAt = now.toISOString();
+        const expiresAt = expires.toISOString();
+
+        try {
+          await ensureSchema(env);
+          const db = getClient(env);
+          await db.execute({
+            sql: 'INSERT OR REPLACE INTO password_reset_tokens (tokenHash, username, expiresAt, createdAt, usedAt) VALUES (?, ?, ?, ?, NULL)',
+            args: [tokenHash, 'admin', expiresAt, createdAt],
+          });
+        } catch (e: any) {
+          return json(request, env, { success: true, sent: false, error: 'Failed to store reset token', details: String(e?.message || e) }, { status: 200 });
+        }
+
+        const origin = String(env.FRONTEND_ORIGIN || '').replace(/\/+$/, '');
+        const resetUrl = `${origin}/#admin-reset?token=${encodeURIComponent(token)}`;
+
+        const payload = {
+          notificationEmail: supportEmail,
+          subject: 'Moonshot Command Center — Reset Password',
+          body:
+            'A password reset was requested for Moonshot Command Center.\n\n' +
+            `Reset Link: ${resetUrl}\n\n` +
+            `This link expires in ${Number.isFinite(ttlMinutes) ? ttlMinutes : 15} minutes.\n\n` +
+            `Support Contact: ${supportEmail}`,
+        };
+
+        const res = await fetch(relayUrl, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'X-Relay-Secret': relaySecret,
+          },
+          body: JSON.stringify(payload),
+        });
+
+        if (!res.ok) {
+          const text = await res.text().catch(() => '');
+          return json(request, env, { success: true, sent: false, error: 'Email relay failed', details: text }, { status: 200 });
+        }
+
+        return json(request, env, { success: true, sent: true }, { status: 200 });
+      } catch (e: any) {
+        return json(request, env, { success: true, sent: false, error: String(e?.message || e) }, { status: 200 });
+      }
+    }
+
+    if (url.pathname === '/api/admin/password-reset/confirm' && request.method === 'POST') {
+      try {
+        const resetSecret = String(env.PASSWORD_RESET_SECRET || '').trim();
+        if (!resetSecret) {
+          return json(request, env, { success: false, error: 'Reset not configured' }, { status: 500 });
+        }
+
+        let body: any;
+        try {
+          body = await request.json();
+        } catch {
+          return json(request, env, { error: 'Invalid JSON' }, { status: 400 });
+        }
+
+        const token = typeof body?.token === 'string' ? body.token.trim() : '';
+        const newPassword = typeof body?.newPassword === 'string' ? body.newPassword : '';
+        if (!token || newPassword.length < 8) {
+          return json(request, env, { success: false, error: 'Invalid token or password' }, { status: 400 });
+        }
+
+        await ensureSchema(env);
+        const db = getClient(env);
+        const tokenHash = await hmacSha256B64Url(resetSecret, token);
+        const res = await db.execute({
+          sql: 'SELECT tokenHash, username, expiresAt, usedAt FROM password_reset_tokens WHERE tokenHash = ?',
+          args: [tokenHash],
+        });
+        const row: any = res?.rows?.[0];
+        if (!row) return json(request, env, { success: false, error: 'Invalid or expired token' }, { status: 400 });
+        if (row.usedAt) return json(request, env, { success: false, error: 'Token already used' }, { status: 400 });
+
+        const expiresAt = String(row.expiresAt || '');
+        if (!expiresAt || Date.parse(expiresAt) < Date.now()) {
+          return json(request, env, { success: false, error: 'Invalid or expired token' }, { status: 400 });
+        }
+
+        const saltBytes = crypto.getRandomValues(new Uint8Array(16));
+        const salt = base64UrlFromBytes(saltBytes);
+        const iterations = 100_000;
+        const passwordHash = await derivePasswordHash(newPassword, salt, iterations);
+        const now = new Date().toISOString();
+        const username = String(row.username || 'admin');
+
+        await db.execute({
+          sql: 'INSERT OR REPLACE INTO admin_users (username, passwordHash, salt, iterations, createdAt, updatedAt) VALUES (?, ?, ?, ?, COALESCE((SELECT createdAt FROM admin_users WHERE username = ?), ?), ?)',
+          args: [username, passwordHash, salt, iterations, username, now, now],
+        });
+
+        await db.execute({
+          sql: 'UPDATE password_reset_tokens SET usedAt = ? WHERE tokenHash = ?',
+          args: [now, tokenHash],
+        });
+
+        return json(request, env, { success: true }, { status: 200 });
+      } catch (e: any) {
+        return json(request, env, { success: false, error: String(e?.message || e) }, { status: 500 });
+      }
+    }
+
+    if (url.pathname === '/api/admin/access-recovery' && request.method === 'POST') {
+      try {
+        const relayUrl = String(env.EMAIL_RELAY_URL || '').trim();
+        const relaySecret = String(env.EMAIL_RELAY_SECRET || '').trim();
+        if (!relayUrl || !relaySecret) {
+          return json(request, env, { success: true, sent: false }, { status: 200 });
+        }
+
+        let supportEmail = String(env.SUPPORT_EMAIL || '').trim();
+        try {
+          await ensureSchema(env);
+          const db = getClient(env);
+          const res = await db.execute('SELECT supportEmail FROM settings WHERE id = 1');
+          const row: any = res?.rows?.[0];
+          const fromDb = String(row?.supportEmail || '').trim();
+          if (fromDb) supportEmail = fromDb;
+        } catch {
+          // ignore
+        }
+
+        if (!supportEmail) {
+          return json(request, env, { success: true, sent: false }, { status: 200 });
+        }
+
+        const payload = {
+          notificationEmail: supportEmail,
+          subject: 'Moonshot Command Center — Access Recovery Request',
+          body:
+            'An access recovery request was made for Moonshot Command Center.\n\n' +
+            'If you lost access, please rotate the ADMIN_PASSWORD secret in Cloudflare Worker settings and then log in using the new password.\n\n' +
+            `Support Contact: ${supportEmail}`,
+        };
+
+        const res = await fetch(relayUrl, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'X-Relay-Secret': relaySecret,
+          },
+          body: JSON.stringify(payload),
+        });
+
+        if (!res.ok) {
+          const text = await res.text().catch(() => '');
+          return json(
+            request,
+            env,
+            { success: true, sent: false, error: 'Email relay failed', details: text },
+            { status: 200 }
+          );
+        }
+
+        return json(request, env, { success: true, sent: true }, { status: 200 });
+      } catch (e: any) {
+        return json(request, env, { success: true, sent: false, error: String(e?.message || e) }, { status: 200 });
+      }
     }
 
     if (url.pathname === '/api/settings/public' && request.method === 'GET') {

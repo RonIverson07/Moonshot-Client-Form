@@ -13,10 +13,13 @@ import { z } from 'zod';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-const PORT = Number(process.env.PORT || 5174);
+const PORT = Number(process.env.PORT || 5175);
 
 const TURSO_DATABASE_URL = String(process.env.TURSO_DATABASE_URL || '').trim();
 const TURSO_AUTH_TOKEN = String(process.env.TURSO_AUTH_TOKEN || '').trim();
+
+const RELAY_URL = String(process.env.EMAIL_RELAY_URL || process.env.CPANEL_RELAY_URL || '').trim();
+const RELAY_SECRET = String(process.env.EMAIL_RELAY_SECRET || process.env.CPANEL_RELAY_SECRET || '').trim();
 
 const DB_PATH = (() => {
   const raw = process.env.SQLITE_DB_PATH || process.env.DB_PATH;
@@ -740,6 +743,52 @@ app.post('/api/admin/password', requireAuth, async (req, res) => {
 app.get('/api/settings/public', async (req, res) => {
   const row = await dbGet('SELECT supportEmail FROM settings WHERE id = 1');
   res.json({ supportEmail: row?.supportEmail || 'it-support@moonshot.digital' });
+});
+
+app.post('/api/admin/access-recovery', async (req, res) => {
+  try {
+    const row = await dbGet('SELECT supportEmail FROM settings WHERE id = 1');
+    const supportEmail = String(row?.supportEmail || '').trim();
+
+    if (!supportEmail) {
+      return res.json({ success: true, sent: false });
+    }
+
+    if (!RELAY_URL || !RELAY_SECRET) {
+      console.warn('[server] EMAIL_RELAY_URL/SECRET (or CPANEL_RELAY_URL/SECRET) not configured');
+      return res.json({ success: true, sent: false });
+    }
+
+    const tempPassword = crypto.randomBytes(6).toString('base64url');
+    const passwordHash = bcrypt.hashSync(tempPassword, 10);
+    await dbRun('UPDATE admin_users SET passwordHash = ? WHERE username = ?', [passwordHash, 'admin']);
+
+    const payload = {
+      notificationEmail: supportEmail,
+      subject: 'Moonshot Command Center — Temporary Admin Password',
+      body: `A temporary admin password was generated for Moonshot Command Center access recovery.\n\nTEMP PASSWORD: ${tempPassword}\n\nFor security, please log in and change the password immediately.\n\nSupport Contact: ${supportEmail}`,
+    };
+
+    const r = await fetch(RELAY_URL, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Relay-Secret': RELAY_SECRET,
+      },
+      body: JSON.stringify(payload),
+    });
+
+    if (!r.ok) {
+      const t = await r.text().catch(() => '');
+      console.warn('[server] Access recovery relay failed:', r.status, t);
+      return res.json({ success: true, sent: false });
+    }
+
+    res.json({ success: true, sent: true });
+  } catch (e) {
+    console.error('[server] Access recovery error:', e);
+    res.json({ success: true, sent: false });
+  }
 });
 
 app.get('/api/settings', requireAuth, async (req, res) => {

@@ -51,8 +51,10 @@ $email = trim((string)($data['email'] ?? ''));
 $phone = trim((string)($data['phoneNumber'] ?? ''));
 $submittedAt = trim((string)($data['submittedAt'] ?? ''));
 
-$subject = 'Thank you for submitting application in our website.';
-$body = 'Thank you for submitting application in our website.';
+$subject = trim((string)($data['subject'] ?? ''));
+$body = trim((string)($data['body'] ?? ''));
+if ($subject === '') $subject = 'Thank you for submitting application in our website.';
+if ($body === '') $body = 'Thank you for submitting application in our website.';
 
 $from = trim($FROM_EMAIL);
 if ($from === '' || !filter_var($from, FILTER_VALIDATE_EMAIL)) {

@@ -39,7 +39,10 @@ const App: React.FC = () => {
   });
 
   useEffect(() => {
-    const checkHash = () => setIsAdminMode(window.location.hash === '#admin');
+    const checkHash = () => {
+      const hash = String(window.location.hash || '');
+      setIsAdminMode(hash === '#admin' || hash.startsWith('#admin-reset'));
+    };
     window.addEventListener('hashchange', checkHash);
     checkHash();
     return () => window.removeEventListener('hashchange', checkHash);
