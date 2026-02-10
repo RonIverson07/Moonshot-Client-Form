@@ -51,8 +51,11 @@ $email = trim((string)($data['email'] ?? ''));
 $phone = trim((string)($data['phoneNumber'] ?? ''));
 $submittedAt = trim((string)($data['submittedAt'] ?? ''));
 
+$replyTo = trim((string)($data['replyTo'] ?? ''));
+
 $subject = trim((string)($data['subject'] ?? ''));
 $body = trim((string)($data['body'] ?? ''));
+$isHtml = (bool)($data['isHtml'] ?? false);
 if ($subject === '') $subject = 'Thank you for submitting application in our website.';
 if ($body === '') $body = 'Thank you for submitting application in our website.';
 
@@ -65,8 +68,9 @@ if ($from === '' || !filter_var($from, FILTER_VALIDATE_EMAIL)) {
 
 $extraHeaders = [];
 $extraHeaders[] = 'From: ' . $from;
-if ($email !== '' && filter_var($email, FILTER_VALIDATE_EMAIL)) {
-  $extraHeaders[] = 'Reply-To: ' . $email;
+$effectiveReplyTo = $replyTo !== '' ? $replyTo : $from;
+if (filter_var($effectiveReplyTo, FILTER_VALIDATE_EMAIL)) {
+  $extraHeaders[] = 'Reply-To: ' . $effectiveReplyTo;
 }
 $domain = '';
 $atPos = strrpos($from, '@');
@@ -97,7 +101,7 @@ if (is_array($attachment)) {
 
     $parts = [];
     $parts[] = "--{$boundary}\r\n" .
-      "Content-Type: text/plain; charset=UTF-8\r\n" .
+      ($isHtml ? "Content-Type: text/html; charset=UTF-8\r\n" : "Content-Type: text/plain; charset=UTF-8\r\n") .
       "Content-Transfer-Encoding: 8bit\r\n\r\n" .
       $body . "\r\n";
     $parts[] = "--{$boundary}\r\n" .
@@ -109,10 +113,10 @@ if (is_array($attachment)) {
 
     $message = implode('', $parts);
   } else {
-    $extraHeaders[] = 'Content-Type: text/plain; charset=UTF-8';
+    $extraHeaders[] = $isHtml ? 'Content-Type: text/html; charset=UTF-8' : 'Content-Type: text/plain; charset=UTF-8';
   }
 } else {
-  $extraHeaders[] = 'Content-Type: text/plain; charset=UTF-8';
+  $extraHeaders[] = $isHtml ? 'Content-Type: text/html; charset=UTF-8' : 'Content-Type: text/plain; charset=UTF-8';
 }
 
 $ok = @mail($to, $subject, $message, implode("\r\n", $extraHeaders), '-f ' . $from);

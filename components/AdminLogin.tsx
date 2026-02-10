@@ -10,6 +10,7 @@ interface Props {
 const AdminLogin: React.FC<Props> = ({ onLoginSuccess }) => {
   const [password, setPassword] = useState('');
   const [error, setError] = useState(false);
+  const [errorMessage, setErrorMessage] = useState('');
   const [view, setView] = useState<'login' | 'forgot' | 'reset'>('login');
   const [supportEmail, setSupportEmail] = useState('it-support@moonshot.digital');
   const [isSendingRecovery, setIsSendingRecovery] = useState(false);
@@ -73,12 +74,21 @@ const AdminLogin: React.FC<Props> = ({ onLoginSuccess }) => {
         onLoginSuccess();
         return;
       }
+
+      if (res.status === 401 || res.status === 403) {
+        setErrorMessage('Wrong access key. Please try again.');
+      } else {
+        setErrorMessage('Login failed. Please try again.');
+      }
     } catch {
-      // ignore
+      setErrorMessage('Login failed. Please check your connection and try again.');
     }
 
     setError(true);
-    setTimeout(() => setError(false), 2000);
+    setTimeout(() => {
+      setError(false);
+      setErrorMessage('');
+    }, 2000);
   };
 
   if (view === 'forgot') {
@@ -299,6 +309,12 @@ const AdminLogin: React.FC<Props> = ({ onLoginSuccess }) => {
         </div>
         <h2 className="text-xl md:text-2xl font-black text-brand-navy mb-2 tracking-tighter uppercase">Command Center</h2>
         <p className="text-slate-500 mb-10 text-xs md:text-sm font-normal uppercase tracking-widest opacity-60">Secure Authentication Required</p>
+
+        {error && !!errorMessage && (
+          <div className="mb-6 p-3 bg-brand-pink/10 rounded-xl border border-brand-pink/20 text-[10px] font-bold text-brand-pink uppercase tracking-widest">
+            {errorMessage}
+          </div>
+        )}
         
         <form onSubmit={handleSubmit} className="space-y-6">
           <div className="text-left">

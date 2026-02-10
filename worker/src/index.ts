@@ -143,6 +143,81 @@ const verifyPassword = async (password: string, record: any) => {
   return actual === expected;
 };
 
+const isValidEmail = (value: any) => {
+  const s = String(value || '').trim();
+  if (!s) return false;
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(s);
+};
+
+const buildSubmissionConfirmationHtml = (companyName: string, attachmentFilename?: string) => {
+  const safeCompany = String(companyName || '').trim();
+  const greetingName = safeCompany || 'Company Name(They fill up)';
+  const safeAttachment = String(attachmentFilename || '').trim();
+  const attachmentBlock = safeAttachment
+    ? `
+                  <div style="margin:0 0 18px 0; padding:12px 14px; border:1px solid #e5e7eb; border-radius:10px; background-color:#f9fafb;">
+                    <div style="font-weight:700; margin:0 0 6px 0;">PDF attached</div>
+                    <div style="margin:0; color:#111827;">${safeAttachment}</div>
+                    <div style="margin:6px 0 0 0; color:#6b7280; font-size:12px; line-height:18px;">If you don’t see the attachment, scroll to the bottom of this email or check your email app’s attachment section.</div>
+                  </div>
+                `
+    : '';
+
+  return `<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="x-apple-disable-message-reformatting" />
+    <title>Submission Confirmation</title>
+  </head>
+  <body style="margin:0; padding:0; background-color:#f6f7f9;">
+    <div style="display:none; max-height:0; overflow:hidden; opacity:0; color:transparent; mso-hide:all;">
+      Thank you for your submission.
+    </div>
+
+    <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="background-color:#f6f7f9;">
+      <tr>
+        <td align="center" style="padding:24px 12px;">
+          <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="600" style="width:600px; max-width:600px; background-color:#ffffff; border:1px solid #e6e8ec; border-radius:12px;">
+            <tr>
+              <td style="padding:20px 24px; border-bottom:1px solid #eef0f3;">
+                <div style="font-family:Arial, Helvetica, sans-serif; font-size:14px; line-height:20px; color:#111827; font-weight:700;">Moonshot Digital</div>
+              </td>
+            </tr>
+            <tr>
+              <td style="padding:24px;">
+                <div style="font-family:Arial, Helvetica, sans-serif; font-size:14px; line-height:22px; color:#111827;">
+                  <p style="margin:0 0 14px 0;">Hi ${greetingName}</p>
+                  <p style="margin:0 0 14px 0;">Thank you for your submission.</p>
+                  <p style="margin:0 0 14px 0;">We’ve successfully received your request through Moonshot Digital. Our team will review the information and reach out if any additional details are needed.</p>
+                  ${attachmentBlock}
+                  <p style="margin:0 0 18px 0;">If you have updates or questions, you may reply directly to this email.</p>
+                  <p style="margin:0;">Best regards,<br />Moonshot Digital Team</p>
+                </div>
+              </td>
+            </tr>
+            <tr>
+              <td style="padding:14px 24px; border-top:1px solid #eef0f3;">
+                <div style="font-family:Arial, Helvetica, sans-serif; font-size:12px; line-height:18px; color:#6b7280;">This is an automated confirmation email.</div>
+              </td>
+            </tr>
+          </table>
+
+          <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="600" style="width:600px; max-width:600px;">
+            <tr>
+              <td align="center" style="padding:12px 24px 0 24px;">
+                <div style="font-family:Arial, Helvetica, sans-serif; font-size:12px; line-height:18px; color:#9ca3af;">Moonshot Digital Team</div>
+              </td>
+            </tr>
+          </table>
+        </td>
+      </tr>
+    </table>
+  </body>
+</html>`;
+};
+
 const corsHeaders = (request: Request, env: Env) => {
   const reqOrigin = request.headers.get('Origin') || '';
   const allowedRaw = String(env.FRONTEND_ORIGIN || '').trim();
@@ -664,6 +739,25 @@ export default {
       }
 
       try {
+        const hasSubject = typeof payload?.subject === 'string' && String(payload.subject).trim() !== '';
+        const hasBody = typeof payload?.body === 'string' && String(payload.body).trim() !== '';
+        if (!hasSubject) payload.subject = 'Submission Confirmation';
+        if (!hasBody) {
+          payload.body = buildSubmissionConfirmationHtml(
+            String(payload?.companyName || ''),
+            typeof payload?.attachment?.filename === 'string' ? payload.attachment.filename : ''
+          );
+          if (typeof payload?.isHtml === 'undefined') payload.isHtml = true;
+        }
+
+        if (typeof payload?.replyTo === 'undefined' || String(payload.replyTo || '').trim() === '') {
+          payload.replyTo = String((env as any).REPLY_TO_EMAIL || 'quotation@moonshotdigital.com.ph').trim();
+        }
+      } catch {
+        // ignore
+      }
+
+      try {
         const res = await fetch(relayUrl, {
           method: 'POST',
           headers: {
@@ -728,7 +822,9 @@ export default {
           args: [submission.id, submission.submittedAt, JSON.stringify(submission)],
         });
 
-        return json(request, env, { submission, stored: true }, { status: 201 });
+        const confirmationEmail = { attempted: false, sent: false, skipped: true } as any;
+
+        return json(request, env, { submission, stored: true, confirmationEmail }, { status: 201 });
       } catch (e: any) {
         const message = String(e?.message || e);
         if (message.toLowerCase().includes('unique')) {
