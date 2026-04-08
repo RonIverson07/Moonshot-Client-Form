@@ -156,9 +156,9 @@ const buildSubmissionConfirmationHtml = (companyName: string, attachmentFilename
   const attachmentBlock = safeAttachment
     ? `
                   <div style="margin:0 0 18px 0; padding:12px 14px; border:1px solid #e5e7eb; border-radius:10px; background-color:#f9fafb;">
-                    <div style="font-weight:700; margin:0 0 6px 0;">PDF attached</div>
+                    <div style="font-weight:700; margin:0 0 6px 0;">Strategy Brief Attached</div>
                     <div style="margin:0; color:#111827;">${safeAttachment}</div>
-                    <div style="margin:6px 0 0 0; color:#6b7280; font-size:12px; line-height:18px;">If you don’t see the attachment, scroll to the bottom of this email or check your email app’s attachment section.</div>
+                    <div style="margin:6px 0 0 0; color:#6b7280; font-size:12px; line-height:18px;">The submission PDF described below is attached to this email. You can find it at the bottom of the message or in your email app’s attachment section.</div>
                   </div>
                 `
     : '';
@@ -173,7 +173,7 @@ const buildSubmissionConfirmationHtml = (companyName: string, attachmentFilename
   </head>
   <body style="margin:0; padding:0; background-color:#f6f7f9;">
     <div style="display:none; max-height:0; overflow:hidden; opacity:0; color:transparent; mso-hide:all;">
-      We’ve successfully received your request through Moonshot Digital.
+      Notification: A new lead submission has been logged via Moonshot Digital.
     </div>
 
     <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="background-color:#f6f7f9;">
@@ -188,11 +188,8 @@ const buildSubmissionConfirmationHtml = (companyName: string, attachmentFilename
             <tr>
               <td style="padding:24px;">
                 <div style="font-family:Arial, Helvetica, sans-serif; font-size:14px; line-height:22px; color:#111827;">
-                  <p style="margin:0 0 14px 0;">Hi ${greetingName}</p>
-                  <p style="margin:0 0 14px 0;">We’ve successfully received your request through Moonshot Digital. Our team will review the information and reach out if any additional details are needed.</p>
+                  <p style="margin:0 0 14px 0;">This is a notification for a new forms submission from <strong>${greetingName}</strong>. The generated brief (PDF) is provided below for your review.</p>
                   ${attachmentBlock}
-                  <p style="margin:0 0 18px 0;">If you have updates or questions, you may reply directly to this email.</p>
-                  <p style="margin:0;">Best regards,<br />Moonshot Digital Team</p>
                 </div>
               </td>
             </tr>
@@ -750,7 +747,7 @@ export default {
         }
 
         if (typeof payload?.replyTo === 'undefined' || String(payload.replyTo || '').trim() === '') {
-          payload.replyTo = String((env as any).REPLY_TO_EMAIL || 'no-reply@moonshotdigital.com.ph').trim();
+          payload.replyTo = String((env as any).REPLY_TO_EMAIL || 'hello@moonshotdigital.com.ph').trim();
         }
       } catch {
         // ignore

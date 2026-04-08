@@ -163,7 +163,7 @@ const ClientForm: React.FC<Props> = ({ onSubmit }) => {
           </div>
           <h2 className="text-3xl md:text-4xl font-black text-brand-navy mb-4 tracking-tight uppercase leading-none">Mission Success!</h2>
           <p className="text-slate-700 mb-8 md:mb-10 text-md md:text-lg leading-relaxed font-semibold">
-            We’ve successfully received your request through Moonshot Digital. Our team will review the information and reach out if any additional details are needed.
+            We’ve successfully received your request through Moonshot Digital. Our team will review the information and reach out if any additional details are needed. If you have any inquiries, feel free to email us at hello@moonshotdigital.com.ph.
           </p>
           <button 
             onClick={() => window.location.reload()}
