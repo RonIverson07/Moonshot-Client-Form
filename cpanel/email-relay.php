@@ -5,8 +5,8 @@ declare(strict_types=1);
 header('Content-Type: application/json; charset=utf-8');
 
 // 1) Set these values before uploading.
-$RELAY_SECRET = 'CHANGE_ME_LONG_RANDOM_SECRET';
-$FROM_EMAIL = 'quotation@moonshotdigital.com.ph';
+$RELAY_SECRET = 'relay_secret_2026_9fK2pQ7wL3xN8sV1rT6yZ0aB4cD7eH9j';
+$FROM_EMAIL = 'no-reply@moonshotdigital.com.ph';
 
 // Basic hardening
 if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
@@ -18,8 +18,8 @@ if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
 $headers = function_exists('getallheaders') ? getallheaders() : [];
 $providedSecret = '';
 foreach ($headers as $k => $v) {
-  if (strtolower((string)$k) === 'x-relay-secret') {
-    $providedSecret = (string)$v;
+  if (strtolower((string) $k) === 'x-relay-secret') {
+    $providedSecret = (string) $v;
     break;
   }
 }
@@ -38,26 +38,28 @@ if (!is_array($data)) {
   exit;
 }
 
-$to = trim((string)($data['notificationEmail'] ?? ''));
+$to = trim((string) ($data['notificationEmail'] ?? ''));
 if ($to === '' || !filter_var($to, FILTER_VALIDATE_EMAIL)) {
   http_response_code(400);
   echo json_encode(['success' => false, 'error' => 'Missing or invalid notificationEmail']);
   exit;
 }
 
-$company = trim((string)($data['companyName'] ?? ''));
-$contact = trim((string)($data['contactPerson'] ?? ''));
-$email = trim((string)($data['email'] ?? ''));
-$phone = trim((string)($data['phoneNumber'] ?? ''));
-$submittedAt = trim((string)($data['submittedAt'] ?? ''));
+$company = trim((string) ($data['companyName'] ?? ''));
+$contact = trim((string) ($data['contactPerson'] ?? ''));
+$email = trim((string) ($data['email'] ?? ''));
+$phone = trim((string) ($data['phoneNumber'] ?? ''));
+$submittedAt = trim((string) ($data['submittedAt'] ?? ''));
 
-$replyTo = trim((string)($data['replyTo'] ?? ''));
+$replyTo = trim((string) ($data['replyTo'] ?? ''));
 
-$subject = trim((string)($data['subject'] ?? ''));
-$body = trim((string)($data['body'] ?? ''));
-$isHtml = (bool)($data['isHtml'] ?? false);
-if ($subject === '') $subject = 'Thank you for submitting application in our website.';
-if ($body === '') $body = 'Thank you for submitting application in our website.';
+$subject = trim((string) ($data['subject'] ?? ''));
+$body = trim((string) ($data['body'] ?? ''));
+$isHtml = (bool) ($data['isHtml'] ?? false);
+if ($subject === '')
+  $subject = 'Thank you for submitting application in our website.';
+if ($body === '')
+  $body = 'Thank you for submitting application in our website.';
 
 $from = trim($FROM_EMAIL);
 if ($from === '' || !filter_var($from, FILTER_VALIDATE_EMAIL)) {
@@ -85,13 +87,15 @@ $attachment = $data['attachment'] ?? null;
 
 $message = $body;
 if (is_array($attachment)) {
-  $filename = trim((string)($attachment['filename'] ?? 'Attachment.pdf'));
-  if ($filename === '') $filename = 'Attachment.pdf';
+  $filename = trim((string) ($attachment['filename'] ?? 'Attachment.pdf'));
+  if ($filename === '')
+    $filename = 'Attachment.pdf';
 
-  $contentType = trim((string)($attachment['contentType'] ?? 'application/octet-stream'));
-  if ($contentType === '') $contentType = 'application/octet-stream';
+  $contentType = trim((string) ($attachment['contentType'] ?? 'application/octet-stream'));
+  if ($contentType === '')
+    $contentType = 'application/octet-stream';
 
-  $contentBase64 = (string)($attachment['contentBase64'] ?? '');
+  $contentBase64 = (string) ($attachment['contentBase64'] ?? '');
   $contentBase64 = preg_replace('/^data:[^,]+,/', '', $contentBase64);
   $contentBase64 = preg_replace('/\s+/', '', $contentBase64);
 
