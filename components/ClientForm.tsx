@@ -94,11 +94,7 @@ const ClientForm: React.FC<Props> = ({ onSubmit }) => {
       const email = formData.email.trim().toLowerCase();
       const emailOk = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
       if (!emailOk) {
-        newErrors.email = 'Invalid Email';
-      } else {
-        const domain = email.split('@').pop() || '';
-        const allowed = ['gmail.com', 'yahoo.com', 'outlook.com', 'hotmail.com', 'live.com'];
-        if (!allowed.includes(domain)) newErrors.email = 'Use gmail.com, yahoo.com, or Microsoft mail (outlook/hotmail/live)';
+        newErrors.email = 'Invalid email address';
       }
     }
 
@@ -137,7 +133,7 @@ const ClientForm: React.FC<Props> = ({ onSubmit }) => {
         id: Math.random().toString(36).substr(2, 9),
         submittedAt: new Date().toISOString(),
       } as FormData;
-      
+
       try {
         await onSubmit(finalData);
         setIsSubmitted(true);
@@ -165,7 +161,7 @@ const ClientForm: React.FC<Props> = ({ onSubmit }) => {
           <p className="text-slate-700 mb-8 md:mb-10 text-md md:text-lg leading-relaxed font-semibold">
             We’ve successfully received your request through Moonshot Digital. Our team will review the information and reach out if any additional details are needed. If you have any inquiries, feel free to email us at hello@moonshotdigital.com.ph.
           </p>
-          <button 
+          <button
             onClick={() => window.location.reload()}
             className="w-full bg-brand-green text-white py-4 md:py-5 rounded-2xl font-bold hover:brightness-110 shadow-lg shadow-brand-green/20 transition-all text-md md:text-lg uppercase tracking-widest"
           >
@@ -186,17 +182,17 @@ const ClientForm: React.FC<Props> = ({ onSubmit }) => {
               <span className="text-[11px] font-black text-slate-500 uppercase tracking-[0.2em]">{currentStepIndex + 1} / {STEPS.length}</span>
               <div className="flex gap-1 md:gap-1.5">
                 {STEPS.map((_, i) => (
-                  <div 
-                    key={i} 
-                    className={`h-1.5 w-4 md:w-8 rounded-full transition-all duration-700 ${i <= currentStepIndex ? 'bg-brand-green' : 'bg-slate-300'}`} 
+                  <div
+                    key={i}
+                    className={`h-1.5 w-4 md:w-8 rounded-full transition-all duration-700 ${i <= currentStepIndex ? 'bg-brand-green' : 'bg-slate-300'}`}
                   />
                 ))}
               </div>
             </div>
           </div>
-          
+
           <div className="flex items-center gap-3">
-            <a 
+            <a
               href="mailto:hello@moonshotdigital.com.ph"
               className="px-4 py-2 md:px-6 md:py-3 rounded-xl bg-brand-navy text-white font-black text-[9px] md:text-[10px] uppercase tracking-widest hover:bg-slate-800 transition-all shadow-md flex items-center gap-2"
             >
@@ -246,21 +242,21 @@ const ClientForm: React.FC<Props> = ({ onSubmit }) => {
           {currentStep.id === 'nature' && (
             <div className="space-y-6 md:space-y-8">
               <InputField label="Project Title" required error={errors.projectTitle} placeholder="e.g., E-Commerce Transformation" value={formData.projectTitle} onChange={v => updateField('projectTitle', v)} />
-              <SelectField 
-                label="Project Type" 
+              <SelectField
+                label="Project Type"
                 required
                 error={errors.projectType}
-                options={['E-Commerce Website', 'Web3 Project', 'Marketing Website', 'Editorial Website', 'Custom Software']} 
-                value={formData.projectType} 
-                onChange={v => updateField('projectType', v)} 
+                options={['E-Commerce Website', 'Web3 Project', 'Marketing Website', 'Editorial Website', 'Custom Software']}
+                value={formData.projectType}
+                onChange={v => updateField('projectType', v)}
               />
-              <RadioField 
-                label="Will you provide assets (copy, images, brand guidelines)?" 
+              <RadioField
+                label="Will you provide assets (copy, images, brand guidelines)?"
                 required
                 error={errors.provideAssets}
-                options={['Yes', 'No']} 
-                value={formData.provideAssets} 
-                onChange={v => updateField('provideAssets', v)} 
+                options={['Yes', 'No']}
+                value={formData.provideAssets}
+                onChange={v => updateField('provideAssets', v)}
               />
               <InputField label="Current Website (if any)" placeholder="https://..." error={errors.currentWebsite} value={formData.currentWebsite} onChange={v => updateField('currentWebsite', v)} />
             </div>
@@ -279,7 +275,7 @@ const ClientForm: React.FC<Props> = ({ onSubmit }) => {
             <div className="space-y-6 md:space-y-8">
               <RadioField label="Do you have a company logo?" required error={errors.hasLogo} options={['Yes', 'No']} value={formData.hasLogo} onChange={v => updateField('hasLogo', v)} />
               {formData.hasLogo === 'No' && (
-                 <RadioField label="Would you like us to design a logo for you?" required error={errors.designLogoForYou} options={['Yes', 'No']} value={formData.designLogoForYou} onChange={v => updateField('designLogoForYou', v)} />
+                <RadioField label="Would you like us to design a logo for you?" required error={errors.designLogoForYou} options={['Yes', 'No']} value={formData.designLogoForYou} onChange={v => updateField('designLogoForYou', v)} />
               )}
               <TextArea label="What emotions should visitors feel?" required error={errors.emotionalGoal} hint="Trust, innovation, luxury, or excitement?" value={formData.emotionalGoal} onChange={v => updateField('emotionalGoal', v)} />
               <TextArea label="Color preferences, look & feel?" required error={errors.colorPreferences} value={formData.colorPreferences} onChange={v => updateField('colorPreferences', v)} />
@@ -292,11 +288,11 @@ const ClientForm: React.FC<Props> = ({ onSubmit }) => {
               <TextArea label="Target Market & Ideal Customer" required error={errors.targetMarket} hint="Who are we building this for?" value={formData.targetMarket} onChange={v => updateField('targetMarket', v)} />
               <TextArea label="What actions should visitors take?" required error={errors.visitorActions} hint="Buy, subscribe, or contact?" value={formData.visitorActions} onChange={v => updateField('visitorActions', v)} />
               <TextArea label="What sets you apart from competitors?" required error={errors.uniqueSellingPoint} value={formData.uniqueSellingPoint} onChange={v => updateField('uniqueSellingPoint', v)} />
-              <MultiSelect 
-                label="Requested Features" 
-                options={['Contact Page', 'Gallery Page', 'Video Integration', 'Newsletter', 'Social Media', 'Blog/CMS', 'Live Chat', 'E-commerce']} 
-                selected={formData.requestedFeatures || []} 
-                onChange={v => updateField('requestedFeatures', v)} 
+              <MultiSelect
+                label="Requested Features"
+                options={['Contact Page', 'Gallery Page', 'Video Integration', 'Newsletter', 'Social Media', 'Blog/CMS', 'Live Chat', 'E-commerce']}
+                selected={formData.requestedFeatures || []}
+                onChange={v => updateField('requestedFeatures', v)}
               />
               <TextArea label="SEO Focus Keywords" required error={errors.seoKeywords} value={formData.seoKeywords} onChange={v => updateField('seoKeywords', v)} />
             </div>
@@ -313,14 +309,14 @@ const ClientForm: React.FC<Props> = ({ onSubmit }) => {
         </div>
 
         <div className="mt-16 md:mt-24 flex items-center justify-between border-t border-slate-300 pt-8 md:pt-12">
-          <button 
+          <button
             onClick={handleBack}
             disabled={isSubmitting}
             className={`px-4 md:px-8 py-3 md:py-4 font-bold rounded-2xl transition-all ${currentStepIndex === 0 ? 'opacity-0 pointer-events-none' : 'text-slate-500 hover:text-brand-navy hover:bg-slate-200 border border-slate-300'}`}
           >
             Back
           </button>
-          <button 
+          <button
             onClick={handleNext}
             disabled={isSubmitting}
             className={`px-8 md:px-12 py-4 md:py-5 bg-brand-green text-white rounded-2xl font-black shadow-xl shadow-brand-green/20 hover:scale-[1.02] active:scale-[0.98] transition-all flex items-center gap-2 md:gap-3 text-md md:text-lg uppercase tracking-widest ${isSubmitting ? 'opacity-70 cursor-not-allowed' : ''}`}
@@ -348,12 +344,12 @@ const InputField = ({ label, type = 'text', required, value = '', onChange, plac
     <label className="text-[12px] md:text-sm font-black text-brand-navy uppercase tracking-wider flex items-center gap-1.5">
       {label} {required && <span className="text-brand-pink">*</span>}
     </label>
-    <input 
+    <input
       type={type}
       value={value}
       onChange={e => onChange(e.target.value)}
       placeholder={placeholder}
-      className={`bg-white border-2 ${error ? 'border-brand-pink bg-brand-pink/5' : 'border-slate-400 focus:border-brand-green'} p-4 md:p-5 rounded-xl text-slate-900 font-bold transition-all placeholder:text-slate-300 shadow-sm text-sm md:text-base`} 
+      className={`bg-white border-2 ${error ? 'border-brand-pink bg-brand-pink/5' : 'border-slate-400 focus:border-brand-green'} p-4 md:p-5 rounded-xl text-slate-900 font-bold transition-all placeholder:text-slate-300 shadow-sm text-sm md:text-base`}
     />
     {error && <span className="text-[11px] text-brand-pink font-black uppercase tracking-tight">{String(error)}</span>}
   </div>
@@ -365,11 +361,11 @@ const TextArea = ({ label, required, value = '', onChange, hint, error }: any) =
       {label} {required && <span className="text-brand-pink">*</span>}
     </label>
     {hint && <p className="text-[11px] md:text-xs text-slate-500 font-bold -mt-1">{hint}</p>}
-    <textarea 
+    <textarea
       rows={4}
       value={value}
       onChange={e => onChange(e.target.value)}
-      className={`bg-white border-2 ${error ? 'border-brand-pink bg-brand-pink/5' : 'border-slate-400 focus:border-brand-green'} p-4 md:p-5 rounded-xl text-slate-900 font-bold transition-all shadow-sm text-sm md:text-base`} 
+      className={`bg-white border-2 ${error ? 'border-brand-pink bg-brand-pink/5' : 'border-slate-400 focus:border-brand-green'} p-4 md:p-5 rounded-xl text-slate-900 font-bold transition-all shadow-sm text-sm md:text-base`}
     />
     {error && <span className="text-[11px] text-brand-pink font-black uppercase tracking-tight">{String(error)}</span>}
   </div>
@@ -415,8 +411,8 @@ const MultiSelect = ({ label, options, selected, onChange }: any) => (
     <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 md:gap-3">
       {options.map((opt: string) => (
         <label key={opt} className={`flex items-center gap-3 md:gap-4 p-3 md:p-4 rounded-xl border-2 cursor-pointer transition-all font-black ${selected.includes(opt) ? 'bg-brand-green/10 border-brand-green text-brand-green' : 'bg-white border-slate-400 text-slate-800 hover:border-slate-600'}`}>
-          <input 
-            type="checkbox" 
+          <input
+            type="checkbox"
             checked={selected.includes(opt)}
             onChange={() => {
               const next = selected.includes(opt) ? selected.filter((s: any) => s !== opt) : [...selected, opt];
