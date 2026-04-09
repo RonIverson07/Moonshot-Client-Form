@@ -224,16 +224,7 @@ const settingsSchema = z.object({
   useSSL: z.boolean(),
 });
 
-const ALLOWED_EMAIL_DOMAINS = new Set(['gmail.com', 'yahoo.com', 'outlook.com', 'hotmail.com', 'live.com']);
-const restrictedEmail = z
-  .string()
-  .email()
-  .refine(v => {
-    const at = v.lastIndexOf('@');
-    if (at === -1) return false;
-    const domain = v.slice(at + 1).toLowerCase();
-    return ALLOWED_EMAIL_DOMAINS.has(domain);
-  }, 'Email domain must be gmail.com, yahoo.com, or Microsoft mail (outlook/hotmail/live)');
+const restrictedEmail = z.string().email();
 
 let _pdfBrowser;
 const getPdfBrowser = async () => {
